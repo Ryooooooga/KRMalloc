@@ -1,16 +1,22 @@
 ﻿#include <string.h>
 #include "MemoryAllocator.h"
 
-#ifdef _MSC_VER
-
+#if defined(_WIN32) || defined(_WIN64)
 #include <Windows.h>
+#else
+#include <sys/mman.h>
+#endif
+
+#if defined(__APPLE__)
+typedef long double max_align_t;
+#elif defined(__clang__) || defined(__llvm__)
+typedef union {
+    long double _ld;
+    long long   _ll;
+} max_align_t;
+#elif defined(_MSC_VER)
 typedef double max_align_t;
-
-#else//_MSC_VER
-
-#include <unistd.h>
-
-#endif//_MSC_VER
+#endif
 
 typedef union AreaHeader {
 	struct {
@@ -23,7 +29,7 @@ typedef union AreaHeader {
 
 static const size_t defaultSize	= 1024*1024;
 static const size_t limitSize	= 1024*1024*1024;
-static const size_t	alignment	= _Alignof(max_align_t);
+static const size_t	alignment	= __alignof(max_align_t);
 static const size_t headerSize	= sizeof(AreaHeader);
 
 static char*		memory;
@@ -49,25 +55,26 @@ static void* AllocateBuffer(size_t size) {
 	}
 
 	char* ptr = memory + allocated;
-	allocated += size;
 
-	if(!memory || allocated >= limitSize) {
+	if(!memory || allocated+size >= limitSize)
 		return NULL;
-	}
 	
+	allocated += size;
 	return VirtualAlloc(ptr, size, MEM_COMMIT, PAGE_READWRITE);
 
 #else//_MSC_VER
 	
-	void* p = sbrk(size);
-	allocated += size;
+	void* ptr = mmap(memory+allocated, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
 
-	if(p == (void*)-1)
+	if(ptr == (void*)-1)
 		return NULL;
-	else if(memory)
+	
+	allocated += size;
+	
+	if(memory)
 		return memory + allocated - size;
 	else
-		return memory = p;
+		return memory = ptr;
 
 #endif//_MSC_VER
 }
